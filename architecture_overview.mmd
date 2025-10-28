@@ -1,0 +1,72 @@
+flowchart LR
+  %% Classes
+  classDef svc fill:#eef7ff,stroke:#5aa0ff,stroke-width:1px
+  classDef data fill:#f7f7f7,stroke:#999,stroke-width:1px
+  classDef aws fill:#fef6e7,stroke:#f0a500,stroke-width:1px
+  classDef elastic fill:#eefcf2,stroke:#33a06f,stroke-width:1px
+
+  %% Client
+  subgraph C[Client]
+    UI[Vite React UI]:::svc
+  end
+
+  %% Server
+  subgraph S[Server Node Express]
+    API[/POST api/assistant/]:::svc
+    POL[Policy Router Haiku or Heuristics]:::svc
+    MCP[MCP Client products promotions]:::svc
+    REAS[Reasoning Sonnet Titan Nova]:::svc
+    LOG[Policy Logger]:::svc
+  end
+
+  %% Elastic Cloud
+  subgraph E[Elastic Cloud]
+    MCPX[Elastic MCP Endpoint]:::elastic
+    IDX[(Indexes products promotions)]:::elastic
+    PLOG[(Index policy-decisions)]:::elastic
+  end
+
+  %% Amazon Bedrock
+  subgraph B[Amazon Bedrock]
+    HAIKU[Haiku Policy Model]:::aws
+    SONNET[Claude Sonnet]:::aws
+    TITANX[Titan Text Express]:::aws
+    NOVA[Nova Premier]:::aws
+  end
+
+  %% AgentCore (optional)
+  subgraph A[AgentCore optional]
+    AGENT[Bedrock Agent]:::aws
+    AGTOOLS[Lambda tools elasticSearchTopN haikuPolicy sonnet titan logger]:::aws
+  end
+
+  %% Data & Utilities
+  subgraph D[Data and Utilities]
+    IMPORT[import_to_elastic.py]:::data
+    DATAJSON[healthy_basket_dataset.json]:::data
+  end
+
+  %% Main flows
+  UI --> API
+  API --> POL
+  POL -->|if configured| HAIKU
+  API --> MCP --> MCPX --> IDX
+  API --> REAS
+  REAS --> SONNET
+  REAS --> TITANX
+  REAS --> NOVA
+  API --> LOG --> PLOG
+
+  %% AgentCore delegation (optional)
+  API -. useAgentCore:on .-> AGENT
+  AGENT --> AGTOOLS
+  AGTOOLS --> MCPX
+  AGTOOLS --> HAIKU
+  AGTOOLS --> SONNET
+  AGTOOLS --> TITANX
+  AGTOOLS --> NOVA
+  AGTOOLS --> PLOG
+  AGENT -. JSON response .-> API
+
+  %% Data ingest
+  DATAJSON --> IMPORT --> IDX
