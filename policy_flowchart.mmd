@@ -1,0 +1,85 @@
+flowchart TD
+  %% Inputs
+  A[Shopper Input]
+  A1[nlQuery]
+  A2[Preferences: dietaryTags]
+  A3[Toggles: force Sonnet]
+  A4[policyMode: semi/fully]
+  A5[Engine availability env]
+  A --> A1
+  A --> A2
+  A --> A3
+  A --> A4
+  A --> A5
+
+  B[Analyse Query Context]
+  C[Compute Signals: coreTokens, budget, diet count]
+  D[Compute Complexity Score]
+  A1 --> B
+  A2 --> B
+  A3 --> B
+  A4 --> B
+  B --> C
+  C --> D
+
+  E{Policy Mode}
+  D --> E
+  F[Call Haiku Policy Model]
+  G[Heuristic Policy Decision]
+  E -->|Haiku configured| F
+  E -->|No policy model| G
+
+  H{Proposed Action}
+  F --> H
+  G --> H
+
+  subgraph GR[Guardrails & Availability]
+    I{Action Available?}
+    H --> I
+    J[Downgrade: Premier -> Express -> Sonnet -> Elastic]
+    K[Keep Action]
+    I -->|No| J --> K
+    I -->|Yes| K
+    L{Safety Rules}
+    K --> L
+    M[Prefer Elastic-only for very short queries]
+    N[Disallow Titan Express if complexity LT 5 unless forced]
+    O[Disallow Titan Premier if complexity LT 8]
+    P[Prefer Sonnet if force Sonnet ON]
+    L --> M
+    L --> N
+    L --> O
+    L --> P
+    Q[Resolved Action]
+    M --> Q
+    N --> Q
+    O --> Q
+    P --> Q
+    K --> Q
+  end
+
+  R[Return OOD message + meta + log]
+  Q -->|reject_out_of_domain| R
+
+  S[Resolved: Elastic-only]
+  T[Resolved: Sonnet]
+  U[Resolved: Titan Express]
+  V[Resolved: Titan Premier]
+  Q -->|elastic_only| S
+  Q -->|elastic_plus_sonnet| T
+  Q -->|elastic_plus_titan_express| U
+  Q -->|elastic_plus_titan_premier| V
+
+  subgraph LOG[Policy Logging]
+    direction TB
+    W[Log decision to Elastic - query prefs action vs resolvedAction confidence reason complexity final_model]
+  end
+
+  X[Execute: Elastic MCP only]
+  Y[Execute: Elastic + Sonnet reasoning]
+  Z[Execute: Elastic + Titan Express reasoning]
+  AA[Execute: Elastic + Titan Premier reasoning]
+  S --> W --> X
+  T --> W --> Y
+  U --> W --> Z
+  V --> W --> AA
