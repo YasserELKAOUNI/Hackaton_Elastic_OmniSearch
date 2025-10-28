@@ -75,6 +75,23 @@ npm run dev
 
 The client is proxied to the Express API (`vite.config.ts`), so visiting <http://localhost:5173> loads the full assistant.
 
+### 5. (Optional) Enable AgentCore orchestration
+
+If you have deployed the Amazon Bedrock AgentCore workflow:
+
+1. Populate the AgentCore variables in `server/.env` (see `.env.example`):
+
+   ```ini
+   AGENTCORE_ENABLED=true
+   AGENTCORE_AGENT_ID=your_agent_id
+   AGENTCORE_AGENT_ALIAS_ID=your_agent_alias
+   AGENTCORE_REGION=us-east-1
+   ```
+
+2. Restart the Express server so the new configuration is picked up.
+3. In the web UI header, toggle **AgentCore: On** to hand routing over to the agent. The Claude/Sonnet toggle is left intact for legacy testing.
+4. AgentCore responses are highlighted with a gold badge and their reasoning panel is tagged “AgentCore insight”. Any fallback back to the in-app router is surfaced in the header badges.
+
 ## Bedrock integration
 
 The proxy contains `reasonWithBedrock()`, which invokes Amazon Bedrock directly via the AWS SDK when you set `BEDROCK_REGION`. You can target either a foundation model (with `BEDROCK_MODEL_ID`) or an inference profile (supply `BEDROCK_INFERENCE_PROFILE_ARN`; the proxy will automatically derive the profile ID for `modelId`). By default it calls `anthropic.claude-3-5-sonnet-20241022-v2:0` and the provided sample inference profile `arn:aws:bedrock:us-east-1:975050203092:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0`. Ensure your AWS credentials are available through the standard SDK resolution chain (environment variables, profiles, or IAM role). When Bedrock is enabled, the proxy forwards a rich snapshot (brand, description, nutrition, savings) of up to 12 Elastic candidates and expects the model to reply with JSON containing `summary`, `details`, and a `product_ranking` array (referencing either product IDs or exact names); any matched products are re-ordered in the API response so the UI reflects Bedrock's priorities. The response is expected to look like:
@@ -134,3 +151,65 @@ A lightweight routing layer sits in front of the stack. If you set `BEDROCK_POLI
 - Add authentication / user profiles for personalised budgets, allergens, and loyalty clips.
 
 Enjoy exploring the Healthy Basket experience! 💚
+
+## Hackaton_Elastic_OmniSearch
+
+This repository has been prepared for the Hackaton_Elastic_OmniSearch project. Below is the policy intent flow rendered in Mermaid for quick reference.
+
+### Policy Flow (Mermaid)
+
+```mermaid
+flowchart TD
+  %% Inputs
+  A[Shopper Input\n• nlQuery\n• Preferences (dietaryTags)\n• Toggles (force Sonnet)\n• policyMode (semi/fully)\n• Engine availability (env)] --> B[Analyse Query Context]
+  B --> C[Compute Signals\n• coreTokens\n• hasBudget + maxPrice\n• dietaryTagCount]
+  C --> D[Compute Complexity Score\n(tokens + 2*diet + budget + forceSonnet bonus)]
+
+  %% Routing mode
+  D --> E{Policy Mode}
+  E -->|Haiku configured| F[Call Haiku Policy Model\n(returns action, confidence, complexity)]
+  E -->|No policy model| G[Heuristic Policy Decision\n(rules over complexity, diet, budget, toggles)]
+
+  %% Combine decision source
+  F --> H{Proposed Action}
+  G --> H
+
+  %% Guardrails and availability
+  subgraph GR[Guardrails & Availability]
+    H --> I{Action Available?}
+    I -->|No| J[Downgrade\nPremier → Express → Sonnet → Elastic]
+    I -->|Yes| K[Keep Action]
+    J --> K
+    K --> L{Safety Rules}
+    L -->|Very short query\n(≤2 core tokens) & no diet| M[Prefer Elastic-only]
+    L -->|Complexity <5| N[Disallow Titan Express unless forced]
+    L -->|Complexity <8| O[Disallow Titan Premier]
+    L -->|force Sonnet ON| P[Prefer Sonnet unless strong Titan case]
+    M --> Q[Resolved Action]
+    N --> Q
+    O --> Q
+    P --> Q
+    K --> Q
+  end
+
+  %% Out-of-domain branch
+  Q -->|reject_out_of_domain| R[Return OOD message\n+ policy meta + log]
+
+  %% Normal path
+  Q -->|elastic_only| S[Resolved: Elastic-only]
+  Q -->|elastic_plus_sonnet| T[Resolved: Sonnet]
+  Q -->|elastic_plus_titan_express| U[Resolved: Titan Express]
+  Q -->|elastic_plus_titan_premier| V[Resolved: Titan Premier]
+
+  %% Logging
+  subgraph LOG[Policy Logging]
+    direction TB
+    W[Log decision to Elastic\n• query, prefs\n• action vs resolvedAction\n• confidence, reason\n• complexity(score, source)\n• final_model]
+  end
+
+  %% Hand-off to execution layer (outside policy)
+  S --> W --> X[Execute: Elastic MCP only]
+  T --> W --> Y[Execute: Elastic + Sonnet reasoning]
+  U --> W --> Z[Execute: Elastic + Titan Express reasoning]
+  V --> W --> AA[Execute: Elastic + Titan Premier reasoning]
+```

@@ -1,7 +1,7 @@
 import { UserPreferences } from "../lib/types";
 import clsx from "clsx";
 
-const DIETARY_OPTIONS: Array<{ id: string; label: string; emoji: string }> = [
+export const DIETARY_OPTIONS: Array<{ id: string; label: string; emoji: string }> = [
   { id: "vegetarian", label: "Vegetarian", emoji: "🥗" },
   { id: "vegan", label: "Vegan", emoji: "🌱" },
   { id: "gluten_free", label: "Gluten-free", emoji: "🌾" },

@@ -1,0 +1,41 @@
+{
+  "agentId": "G94IJVP5FL",
+  "agentVersion": "DRAFT",
+  "actionGroupName": "haikuPolicy",
+  "description": "Haiku routing policy",
+  "actionGroupExecutor": {
+    "lambda": "arn:aws:lambda:eu-west-3:975050203092:function:healthy-basket-haiku-policy"
+  },
+  "functionSchema": {
+    "functions": [
+      {
+        "name": "haikuPolicy",
+        "description": "Call Haiku policy model to choose routing action and complexity.",
+        "parameters": {
+          "query": {
+            "description": "Original shopper query.",
+            "type": "string",
+            "required": true
+          },
+          "metricsJson": {
+            "description": "Optional JSON string containing metrics (coreTokenCount, dietaryTagCount, hasBudgetConstraint, policyMode, complexityScoreHint).",
+            "type": "string"
+          },
+          "forceSonnet": {
+            "description": "True when shopper forces Sonnet.",
+            "type": "boolean"
+          },
+          "availabilityJson": {
+            "description": "Optional JSON string with availability flags for Sonnet/Titan models.",
+            "type": "string"
+          },
+          "policyMode": {
+            "description": "Routing mode (semi_managed or fully_managed).",
+            "type": "string"
+          }
+        }
+      }
+    ]
+  },
+  "actionGroupState": "ENABLED"
+}

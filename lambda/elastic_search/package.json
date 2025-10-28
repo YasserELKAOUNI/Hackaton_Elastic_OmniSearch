@@ -1,0 +1,8 @@
+{
+  "name": "healthy-basket-agentcore-elastic-search",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.mjs",
+  "license": "MIT",
+  "dependencies": {}
+}

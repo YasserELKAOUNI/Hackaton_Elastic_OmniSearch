@@ -1,0 +1,80 @@
+<mxfile host="app.diagrams.net" modified="2025-10-28T14:50:00Z" agent="HealthyBasket-Codex">
+  <diagram id="agentcore" name="AgentCore Enabled">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="client" value="<b>Shopper Web Client</b><br>React/Vue SPA<br>HTTPS / JSON APIs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="80" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="backend" value="<b>Node/Express Backend</b><br>Routes search &amp; basket APIs<br>Captures toggles / budget hints<br>Calls Bedrock AgentCore<br>Fallback to Elastic-only when needed<br>Logs to CloudWatch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="220" width="320" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="agentcore" value="<b>AWS Bedrock AgentCore</b><br>Agent G94IJVP5FL (prod, test)<br>Instruction in S3<br>Plan → elasticSearchTopN → haikuPolicy → Reasoning → policyLogger<br>IAM: HealthyBasketAgentResourceRole" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="420" width="360" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="lambdaElastic" value="<b>Lambda: healthy-basket-elastic-search</b><br>Calls Elastic MCP <br>Returns top-N products/promotions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="520" y="400" width="300" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="lambdaHaiku" value="<b>Lambda: healthy-basket-haiku-policy</b><br>Invokes Claude 3 Haiku policy prompt<br>Returns action &amp; complexity" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="520" y="520" width="300" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="elastic" value="<b>Elastic Cloud</b><br>healthy-basket-products index<br>Promotions index<br>MCP tool elasticSearchTopN" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="880" y="400" width="280" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="haiku" value="<b>Amazon Bedrock – Haiku</b><br>Policy model<br>Returns routing suggestion" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cfe2f3;strokeColor=#6d9eeb;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="880" y="540" width="260" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="reasoning" value="<b>Reasoning Models</b><br>Claude 3.5 Sonnet<br>Titan Express<br>Nova Premier" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4cccc;strokeColor=#cc0000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="520" y="660" width="300" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="logger" value="<b>Lambda: healthy-basket-policy-logger</b><br>Sends decisions to Elastic index<br>Emits CloudWatch metrics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="520" y="800" width="320" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="observability" value="<b>Observability &amp; Storage</b><br>CloudWatch Logs / Metrics<br>Kibana dashboards (policy-decisions)<br>S3 instruction artifacts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="900" y="780" width="320" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="dataFlow1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;endArrow=block;strokeColor=#000000;" edge="1" parent="1" source="client" target="backend">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="dataFlow2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;endArrow=block;" edge="1" parent="1" source="backend" target="agentcore">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edgeElastic" style="edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;endArrow=block;" edge="1" parent="1" source="agentcore" target="lambdaElastic">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="420" y="450" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edgeHaiku" style="edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;endArrow=block;" edge="1" parent="1" source="agentcore" target="lambdaHaiku">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edgeReasoning" style="edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;endArrow=block;" edge="1" parent="1" source="agentcore" target="reasoning">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="420" y="705" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edgeLogger" style="edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;endArrow=block;" edge="1" parent="1" source="agentcore" target="logger">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edgeElasticData" style="edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;endArrow=block;" edge="1" parent="1" source="lambdaElastic" target="elastic">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edgeHaikuModel" style="edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;endArrow=block;" edge="1" parent="1" source="lambdaHaiku" target="haiku">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edgeReasoningReturn" style="edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;endArrow=block;dashed=1;" edge="1" parent="1" source="reasoning" target="agentcore">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edgeLoggerMetric" style="edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;endArrow=block;" edge="1" parent="1" source="logger" target="observability">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="noteData" value="Data Ingestion: import_to_elastic.py loads /data JSONs into Elastic" style="shape=process;whiteSpace=wrap;html=1;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="900" y="320" width="300" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="noteConfig" value="Ops &amp; Config: scripts/agent_publish_manual.sh, agent_update_aliases.sh, .env for API keys" style="shape=process;whiteSpace=wrap;html=1;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="520" y="910" width="330" height="80" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

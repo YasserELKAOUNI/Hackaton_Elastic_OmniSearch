@@ -1,0 +1,38 @@
+{
+  "agentId": "G94IJVP5FL",
+  "agentVersion": "DRAFT",
+  "actionGroupId": "AIQZOVUWDU",
+  "actionGroupName": "novaPremierReasoning",
+  "description": "Nova Premier reasoning step",
+  "actionGroupExecutor": {
+    "lambda": "arn:aws:lambda:us-east-1:975050203092:function:healthy-basket-nova-premier"
+  },
+  "functionSchema": {
+    "functions": [
+      {
+        "name": "novaPremierReasoning",
+        "description": "Invoke Nova Premier to generate premium reasoning.",
+        "parameters": {
+          "query": {
+            "description": "Original shopper query.",
+            "type": "string",
+            "required": true
+          },
+          "productsJson": {
+            "description": "JSON array string of candidates.",
+            "type": "string"
+          },
+          "dietaryTagsJson": {
+            "description": "Optional JSON array string of dietary tags.",
+            "type": "string"
+          },
+          "budgetMaxPrice": {
+            "description": "Optional budget ceiling.",
+            "type": "number"
+          }
+        }
+      }
+    ]
+  },
+  "actionGroupState": "ENABLED"
+}

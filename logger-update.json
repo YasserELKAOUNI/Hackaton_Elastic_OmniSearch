@@ -1,0 +1,26 @@
+{
+  "agentId": "G94IJVP5FL",
+  "agentVersion": "DRAFT",
+  "actionGroupId": "4ULLRPWADV",
+  "actionGroupName": "policyLogger",
+  "description": "Persist policy decisions to Elastic.",
+  "actionGroupExecutor": {
+    "lambda": "arn:aws:lambda:us-east-1:975050203092:function:healthy-basket-policy-logger"
+  },
+  "functionSchema": {
+    "functions": [
+      {
+        "name": "policyLogger",
+        "description": "Log the final policy decision and metadata.",
+        "parameters": {
+          "query": { "description": "Shopper query.", "type": "string" },
+          "action": { "description": "Original action from Haiku.", "type": "string" },
+          "resolvedAction": { "description": "Resolved action after guardrails.", "type": "string" },
+          "complexity": { "description": "Final complexity score.", "type": "number" },
+          "metadataJson": { "description": "Optional JSON string with extra metadata (model IDs, fallbacks, cost).", "type": "string" }
+        }
+      }
+    ]
+  },
+  "actionGroupState": "ENABLED"
+}

@@ -1,0 +1,25 @@
+{
+  "agentId": "G94IJVP5FL",
+  "agentVersion": "DRAFT",
+  "actionGroupName": "sonnetReasoning",
+  "description": "Claude Sonnet reasoning",
+  "actionGroupExecutor": {
+    "lambda": "arn:aws:lambda:eu-west-3:975050203092:function:healthy-basket-sonnet-reasoning"
+  },
+  "functionSchema": {
+    "functions": [
+      {
+        "name": "sonnetReasoning",
+        "description": "Invoke Claude 3.5 Sonnet to generate reasoning over candidate products.",
+        "parameters": {
+          "query": { "description": "Original shopper query.", "type": "string", "required": true },
+          "productsJson": { "description": "JSON string of candidate products.", "type": "string" },
+          "promotionsJson": { "description": "JSON string of candidate promotions.", "type": "string" },
+          "budgetMaxPrice": { "description": "Budget ceiling per product.", "type": "number" },
+          "dietaryTagsJson": { "description": "JSON string array of dietary tags.", "type": "string" }
+        }
+      }
+    ]
+  },
+  "actionGroupState": "ENABLED"
+}

@@ -18,6 +18,9 @@ export function ReasoningPanel({ reasoning }: ReasoningPanelProps) {
   } else if (reasoning.origin === "titan-premier") {
     originLabel = "Titan Premier insight";
     originBadgeClass = "bg-emerald-100 text-emerald-700";
+  } else if (reasoning.origin === "agentcore") {
+    originLabel = "AgentCore insight";
+    originBadgeClass = "bg-amber-100 text-amber-700";
   }
 
   return (

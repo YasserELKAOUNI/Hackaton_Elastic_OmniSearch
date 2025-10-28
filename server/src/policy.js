@@ -9,6 +9,8 @@ const {
   BEDROCK_POLICY_MODEL_ID,
 } = process.env;
 
+export const POLICY_MODES = ["semi_managed", "fully_managed"];
+
 const POLICY_OPTIONS = [
   "elastic_only",
   "elastic_plus_bedrock",
@@ -61,18 +63,30 @@ async function callPolicyModel(payload) {
     context,
     dietaryTagCount,
     complexityScore,
+    policyMode = "semi_managed",
   } = payload;
-  const systemPrompt = `You are the routing agent for Healthy Basket, a grocery assistant. You decide which engine should be used.
-Actions:
+  const fullyManaged = policyMode === "fully_managed";
+const systemPrompt = `You are the routing agent for Healthy Basket, a grocery assistant. You decide which engine should be used.
+Actions (only choose from this list):
 - elastic_only: rely on Elastic search heuristics only.
 - elastic_plus_bedrock: use Elastic then Claude Sonnet for premium reasoning.
 - elastic_plus_titan_express: use Elastic then Amazon Titan Text Express (fast AWS-native reasoning).
-- elastic_plus_titan_premier: use Elastic then Amazon Titan Text Premier (higher creativity and depth).
+- elastic_plus_titan_premier: use Elastic then Amazon Titan Text Premier (highest depth, highest cost).
 - reject_out_of_domain: query is outside grocery/retail.
 
-Always respond with compact JSON: {"action":"...", "confidence":0-1, "notes":"..."}
-Use the provided metrics (dietary tag count, core token count, budget flag, complexity score) to judge query complexity. Prefer elastic_plus_titan_premier when complexity score is high and Premier is available. Prefer elastic_only when the query is very short (<=2 core tokens) and no dietary modifiers are present.
-Pick the single most appropriate action.`;
+Always respond with compact JSON: {"action":"...", "confidence":0-1, "notes":"...", "complexity":0-10}
+${fullyManaged
+    ? "Compute the complexity score yourself (0-10) based on the query wording, dietary modifiers, budget mentions, and perceived effort. Do not rely on pre-computed heuristics."
+    : "A pre-computed heuristic complexity score is provided; you may use it or adjust if you disagree (return your chosen score in the response)."}
+Routing policy:
+- Complexity <= 2 with no modifiers -> elastic_only unless the user forces another engine.
+- Complexity 3-4 or simple requests with light constraints -> elastic_plus_bedrock (Sonnet) if available.
+- Complexity 5-7 (moderate detail, multiple modifiers, or budget + dietary) -> elastic_plus_titan_express, provided the endpoint is available.
+- Complexity >= 8 (rich intent, many constraints) -> elastic_plus_titan_premier, but only if the Premier endpoint is available; otherwise fall back to Titan Express or Sonnet according to availability.
+- If the user toggled Bedrock in the UI, default to elastic_plus_bedrock unless complexity clearly justifies Titan Express/Premier.
+- If an endpoint is unavailable, choose the next best option and mention the reason in notes.
+- Keep reject_out_of_domain exclusively for queries clearly outside food, beverage, or household retail.
+Pick the single most appropriate action and include your computed complexity integer (0-10).`;
 
   const translationLine = translations?.length
     ? translations.join(", ")
@@ -118,21 +132,32 @@ Allowed actions: ${POLICY_OPTIONS.join(", ")}
       body: JSON.stringify(body),
     });
     const response = await policyClient.send(command);
-    const payload = JSON.parse(new TextDecoder().decode(response.body));
+    const bodyPayload = JSON.parse(new TextDecoder().decode(response.body));
     const text =
-      payload?.content?.[0]?.text ??
-      payload?.completion ??
+      bodyPayload?.content?.[0]?.text ??
+      bodyPayload?.completion ??
       null;
     if (!text) return null;
     const parsed = JSON.parse(text);
     if (!POLICY_OPTIONS.includes(parsed.action)) {
       return null;
     }
+    const rawComplexity =
+      typeof parsed.complexity === "number"
+        ? parsed.complexity
+        : typeof parsed.complexity_score === "number"
+        ? parsed.complexity_score
+        : undefined;
+    const normalisedComplexity =
+      typeof rawComplexity === "number" && Number.isFinite(rawComplexity)
+        ? Math.max(0, Math.min(10, Math.round(rawComplexity)))
+        : undefined;
     return {
       action: parsed.action,
       confidence: typeof parsed.confidence === "number" ? parsed.confidence : undefined,
       reason: typeof parsed.notes === "string" ? parsed.notes : undefined,
       source: "model",
+      complexityScore: normalisedComplexity,
     };
   } catch (error) {
     console.warn("Policy model call failed, falling back to heuristics:", error.message);
@@ -171,7 +196,11 @@ function basicHeuristicPolicy({
       action: "elastic_only",
       reason: "Short query without modifiers; Elastic heuristics preferred.",
       confidence: 0.7,
-      context,
+      context: {
+        ...context,
+        complexityScore,
+        complexitySource: "heuristic",
+      },
     };
   }
 
@@ -180,7 +209,11 @@ function basicHeuristicPolicy({
       action: "elastic_only",
       reason: "Bedrock unavailable; falling back to Elastic-only.",
       confidence: 0.6,
-      context,
+      context: {
+        ...context,
+        complexityScore,
+        complexitySource: "heuristic",
+      },
     };
   }
 
@@ -190,7 +223,11 @@ function basicHeuristicPolicy({
         action: "elastic_plus_titan_premier",
         reason: `High complexity score (${complexityScore}) with multiple modifiers; Titan Premier can balance depth and AWS-native guardrails.`,
         confidence: 0.7,
-        context,
+        context: {
+          ...context,
+          complexityScore,
+          complexitySource: "heuristic",
+        },
       };
     }
     if (hasTitanExpressTarget && complexityScore >= 5) {
@@ -198,7 +235,11 @@ function basicHeuristicPolicy({
         action: "elastic_plus_titan_express",
         reason: `Moderate complexity score (${complexityScore}); Titan Express provides quick AWS-native reasoning.`,
         confidence: 0.65,
-        context,
+        context: {
+          ...context,
+          complexityScore,
+          complexitySource: "heuristic",
+        },
       };
     }
     if (hasBedrockTarget) {
@@ -206,7 +247,11 @@ function basicHeuristicPolicy({
         action: "elastic_plus_bedrock",
         reason: "Complex query or preferences detected; Bedrock reasoning recommended.",
         confidence: 0.75,
-        context,
+        context: {
+          ...context,
+          complexityScore,
+          complexitySource: "heuristic",
+        },
       };
     }
   }
@@ -215,7 +260,11 @@ function basicHeuristicPolicy({
     action: "elastic_only",
     reason: "Default to Elastic-only for confident simple search.",
     confidence: 0.6,
-    context,
+    context: {
+      ...context,
+      complexityScore,
+      complexitySource: "heuristic",
+    },
   };
 }
 
@@ -228,17 +277,26 @@ export async function decidePolicy({
   hasBedrockTarget,
   hasTitanExpressTarget,
   hasTitanPremierTarget,
+  policyMode = "semi_managed",
 }) {
+  const mode = POLICY_MODES.includes(policyMode) ? policyMode : "semi_managed";
   const analysed = analyseQueryContext(query);
-  const complexityScore = computeComplexityScore(analysed, preferences, { userBedrockToggle });
+  const heuristicComplexity =
+    mode === "semi_managed"
+      ? computeComplexityScore(analysed, preferences, { userBedrockToggle })
+      : undefined;
   const dietaryTagCount = Array.isArray(preferences?.dietaryTags) ? preferences.dietaryTags.length : 0;
-  const context = {
+  const baseContext = {
     ...analysed,
     translations,
     expandedQuery: query,
     rawQuery,
-    complexityScore,
+    ...(typeof heuristicComplexity === "number"
+      ? { complexityScore: heuristicComplexity, complexitySource: "heuristic" }
+      : {}),
+    policyMode: mode,
   };
+
   const modelSuggestion = await callPolicyModel({
     rawQuery,
     expandedQuery: query,
@@ -248,15 +306,33 @@ export async function decidePolicy({
     hasBedrockTarget,
     hasTitanExpressTarget,
     hasTitanPremierTarget,
-    context,
+    context: baseContext,
     dietaryTagCount,
-    complexityScore,
+    complexityScore: mode === "fully_managed" ? undefined : heuristicComplexity,
+    policyMode: mode,
   });
 
   if (modelSuggestion?.action) {
+    const complexityFromModel =
+      typeof modelSuggestion.complexityScore === "number"
+        ? modelSuggestion.complexityScore
+        : baseContext.complexityScore;
     return {
       ...modelSuggestion,
-      context,
+      context: {
+        ...baseContext,
+        ...(modelSuggestion.context || {}),
+        ...(typeof complexityFromModel === "number"
+          ? {
+              complexityScore: complexityFromModel,
+              complexitySource:
+                mode === "fully_managed" ? "haiku" : modelSuggestion.source === "model" ? "haiku_adjusted" : "heuristic",
+            }
+          : {}),
+        policyMode: mode,
+      },
+      policyMode: mode,
+      source: modelSuggestion.source ?? "model",
     };
   }
 
@@ -266,7 +342,15 @@ export async function decidePolicy({
     hasBedrockTarget,
     hasTitanExpressTarget,
     hasTitanPremierTarget,
-    context,
+    context: baseContext,
   });
-  return { ...heuristicDecision, source: "heuristic" };
+  return {
+    ...heuristicDecision,
+    source: "heuristic",
+    policyMode: mode,
+    context: {
+      ...heuristicDecision.context,
+      policyMode: mode,
+    },
+  };
 }

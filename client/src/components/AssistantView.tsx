@@ -1,4 +1,5 @@
-import { AssistantResponse, Product } from "../lib/types";
+import { useState } from "react";
+import { AssistantResponse, PolicyMode, Product } from "../lib/types";
 import { ProductCard } from "./ProductCard";
 import { ReasoningPanel } from "./ReasoningPanel";
 import { motion, AnimatePresence } from "framer-motion";
@@ -55,9 +56,22 @@ export function AssistantView({ query, data, isLoading, isError, onRefresh }: As
 
   const usingBedrock = meta?.reasoningOrigin === "bedrock";
   const policy = meta?.policyDecision as
-    | { action?: string; resolvedAction?: string; confidence?: number; reason?: string; source?: string }
+    | {
+        action?: string;
+        resolvedAction?: string;
+        confidence?: number;
+        reason?: string;
+        source?: string;
+        policyMode?: PolicyMode;
+        context?: { complexityScore?: number; complexitySource?: string; policyMode?: PolicyMode };
+      }
     | undefined;
+  const policyMode = meta?.policyMode ?? policy?.policyMode ?? policy?.context?.policyMode;
+  const complexityScore = policy?.context?.complexityScore;
+  const complexitySource = policy?.context?.complexitySource;
   const reasoningModel = meta?.reasoningModel ?? "none";
+  const agentCoreActive = Boolean(meta?.agentCore);
+  const agentCoreError = meta?.agentCoreError;
   const resolvedAction = policy?.resolvedAction || policy?.action;
 
   const elasticActive = resolvedAction === "elastic_only";
@@ -69,19 +83,40 @@ export function AssistantView({ query, data, isLoading, isError, onRefresh }: As
   const productsEmpty = !data?.products || data.products.length === 0;
   const showReasoningPanel = Boolean(data?.reasoning) && !productsEmpty;
 
-  const badgeClass = (active: boolean) =>
-    active
+  const badgeClass = (active: boolean, tone: "default" | "agent" = "default") => {
+    if (tone === "agent") {
+      return active
+        ? "badge border bg-amber-100 text-amber-700 border-amber-200"
+        : "badge border bg-slate-200 text-slate-500 border-slate-300";
+    }
+    return active
       ? "badge border bg-emerald-100 text-emerald-700 border-emerald-200"
       : "badge border bg-slate-200 text-slate-500 border-slate-300";
+  };
 
-  const engineBadges = [
-    {
-      label: "Elastic",
-      active: elasticActive,
-    },
+  type EngineBadge = {
+    label: string;
+    active: boolean;
+    tone?: "agent" | "default";
+  };
+
+  const engineBadges: EngineBadge[] = [
+    ...(agentCoreActive
+      ? [
+          {
+            label: "AgentCore",
+            active: true,
+            tone: "agent" as const,
+          },
+        ]
+      : []),
     {
       label: "Haiku (policy)",
       active: policyActive,
+    },
+    {
+      label: "Elastic",
+      active: elasticActive,
     },
     {
       label: "Sonnet",
@@ -108,8 +143,19 @@ export function AssistantView({ query, data, isLoading, isError, onRefresh }: As
         </div>
         <div className="flex items-center gap-2 text-xs">
           <span className="badge bg-white/10">#{data.products?.length ?? 0}</span>
+          {policyMode ? (
+            <span className={badgeClass(true)}>
+              {policyMode === "fully_managed" ? "Haiku Fully-managed" : "Haiku Semi-managed"}
+            </span>
+          ) : null}
+          {typeof complexityScore === "number" ? (
+            <span className="badge border bg-slate-200 text-slate-600 border-slate-300">
+              Complexity {complexityScore}
+              {complexitySource ? ` · ${complexitySource}` : ""}
+            </span>
+          ) : null}
           {engineBadges.map((badge) => (
-            <span key={badge.label} className={badgeClass(badge.active)}>
+            <span key={badge.label} className={badgeClass(badge.active, badge.tone || "default")}>
               {badge.label}
             </span>
           ))}
@@ -118,6 +164,8 @@ export function AssistantView({ query, data, isLoading, isError, onRefresh }: As
           ) : null}
         </div>
       </header>
+
+      {agentCoreError ? <AgentCoreAlert message={agentCoreError} meta={meta} /> : null}
 
       {showReasoningPanel ? <ReasoningPanel reasoning={data.reasoning} /> : null}
 
@@ -152,6 +200,69 @@ export function AssistantView({ query, data, isLoading, isError, onRefresh }: As
             ))}
           </AnimatePresence>
         )}
+      </div>
+    </div>
+  );
+}
+
+type AgentCoreAlertProps = {
+  message: string;
+  meta?: AssistantResponse["meta"];
+};
+
+function AgentCoreAlert({ message, meta }: AgentCoreAlertProps) {
+  const [expanded, setExpanded] = useState(false);
+  const previewLength = 160;
+  const shouldTruncate = message.length > previewLength;
+  const previewText = shouldTruncate && !expanded ? `${message.slice(0, previewLength)}…` : message;
+  const resolvedActionRaw = meta?.policyDecision?.resolvedAction;
+  const resolvedActionLabel = resolvedActionRaw === "elastic_plus_bedrock"
+    ? "elastic_plus_sonnet"
+    : resolvedActionRaw;
+
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900 shadow-sm">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-semibold">AgentCore returned a warning</p>
+            <p>{previewText}</p>
+          </div>
+          {shouldTruncate ? (
+            <button
+              type="button"
+              className="text-xs font-medium text-amber-700 hover:text-amber-900"
+              onClick={() => setExpanded((prev) => !prev)}
+            >
+              {expanded ? "Show less" : "Show full message"}
+            </button>
+          ) : null}
+        </div>
+        <div className="grid gap-2 text-xs text-amber-800 sm:grid-cols-3">
+          {resolvedActionLabel ? (
+            <div className="rounded-lg border border-amber-200/70 bg-white/80 px-3 py-2">
+              <div className="font-semibold uppercase tracking-wide text-[11px] text-amber-600">Resolved action</div>
+              <div>{resolvedActionLabel}</div>
+            </div>
+          ) : null}
+          {typeof meta?.policyDecision?.context?.complexityScore === "number" ? (
+            <div className="rounded-lg border border-amber-200/70 bg-white/80 px-3 py-2">
+              <div className="font-semibold uppercase tracking-wide text-[11px] text-amber-600">Complexity</div>
+              <div>
+                {meta.policyDecision.context.complexityScore}
+                {meta.policyDecision.context.complexitySource
+                  ? ` · ${meta.policyDecision.context.complexitySource}`
+                  : ""}
+              </div>
+            </div>
+          ) : null}
+          {meta?.policyDecision?.reason ? (
+            <div className="rounded-lg border border-amber-200/70 bg-white/80 px-3 py-2 sm:col-span-1">
+              <div className="font-semibold uppercase tracking-wide text-[11px] text-amber-600">Policy notes</div>
+              <div>{meta.policyDecision.reason}</div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );

@@ -1,0 +1,98 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Healthy Basket Elastic Search Tool",
+    "version": "1.0.0",
+    "description": "Action group schema allowing the AgentCore policy agent to fetch Elastic product candidates."
+  },
+  "paths": {
+    "/elasticSearchTopN": {
+      "post": {
+        "operationId": "elasticSearchTopN",
+        "summary": "Retrieve top N Elastic search results",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ElasticSearchTopNRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Top product candidates alongside request metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ElasticSearchTopNResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ElasticSearchTopNRequest": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Natural language grocery query provided by the shopper."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 20,
+            "description": "Number of products to return from Elastic."
+          },
+          "preferences": {
+            "type": "object",
+            "description": "Dietary preferences used by the heuristic filters.",
+            "properties": {
+              "dietaryTags": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "ElasticSearchTopNResponse": {
+        "type": "object",
+        "required": ["products"],
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Product document as returned by the MCP Elastic tool.",
+              "additionalProperties": true
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "size": { "type": "integer" },
+              "query": { "type": "string" },
+              "dietaryTags": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

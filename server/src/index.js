@@ -3,7 +3,9 @@ import morgan from "morgan";
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 import dotenv from "dotenv";
 import { analyseQueryContext, computeComplexityScore } from "./utils/context.js";
-import { decidePolicy } from "./policy.js";
+import { decidePolicy, POLICY_MODES } from "./policy.js";
+import crypto from "crypto";
+import { getAgentCoreConfig, invokeAgentCore, isAgentCoreReady } from "./agentcoreClient.js";
 
 dotenv.config();
 
@@ -24,6 +26,7 @@ const BEDROCK_INFERENCE_PROFILE_ARN = process.env.BEDROCK_INFERENCE_PROFILE_ARN 
 const BEDROCK_TITAN_EXPRESS_MODEL_ID = process.env.BEDROCK_TITAN_EXPRESS_MODEL_ID || null;
 const BEDROCK_TITAN_PREMIER_MODEL_ID = process.env.BEDROCK_TITAN_PREMIER_MODEL_ID || null;
 const bedrockClient = BEDROCK_REGION ? new BedrockRuntimeClient({ region: BEDROCK_REGION }) : null;
+const agentCoreConfig = getAgentCoreConfig();
 const PRODUCT_TOOL =
   process.env.MCP_PRODUCT_TOOL || "healthy_basket_products";
 const PROMOTION_TOOL =
@@ -61,6 +64,12 @@ async function logPolicyDecision({
       confidence: typeof policyMeta?.confidence === "number" ? policyMeta.confidence : null,
       reason: policyMeta?.reason ?? null,
       source: policyMeta?.source ?? null,
+      policy_mode: policyMeta?.policyMode ?? null,
+      complexity_score:
+        typeof policyMeta?.context?.complexityScore === "number"
+          ? policyMeta.context.complexityScore
+          : null,
+      complexity_source: policyMeta?.context?.complexitySource ?? null,
       final_model: finalModel ?? null,
     };
     const endpoint = `${baseUrl}/${POLICY_LOG_INDEX}/_doc`;
@@ -1025,19 +1034,51 @@ app.get("/api/health", (_req, res) => {
 app.post("/api/assistant", async (req, res) => {
   const {
     nlQuery,
-    size = 6,
+    size = 20,
     rerank = false,
     useBedrock = false,
     preferences: rawPreferences = {},
+    policyMode: requestedPolicyMode,
+    useAgentCore: useAgentCoreRequested = false,
   } = req.body || {};
   if (!nlQuery || typeof nlQuery !== "string") {
     return res.status(400).json({ error: "nlQuery is required" });
   }
 
   try {
+    const preferences = normalisePreferences(rawPreferences);
+    const wantsAgentCore = Boolean(useAgentCoreRequested);
+    let agentCoreFallbackReason = null;
+
+    if (wantsAgentCore) {
+      if (!isAgentCoreReady()) {
+        agentCoreFallbackReason = agentCoreConfig.enabled
+          ? "AgentCore requested but not fully configured; fell back to in-app routing."
+          : "AgentCore requested but disabled on the server.";
+      } else {
+        try {
+          const agentResponse = await invokeAgentCore({
+            query: nlQuery,
+            preferences,
+            size,
+            policyMode: requestedPolicyMode,
+            useBedrock,
+            rerank,
+          });
+          return res.json(agentResponse);
+        } catch (agentError) {
+          console.error("AgentCore invocation failed, falling back to legacy pipeline:", agentError);
+          agentCoreFallbackReason =
+            agentError instanceof Error ? agentError.message : "Unknown AgentCore error.";
+        }
+      }
+    }
+
     const PREMIER_THRESHOLD = 8;
     const EXPRESS_THRESHOLD = 5;
-    const preferences = normalisePreferences(rawPreferences);
+    const policyMode = POLICY_MODES.includes(requestedPolicyMode)
+      ? requestedPolicyMode
+      : "semi_managed";
     const hasActiveDietaryFilters = preferences.dietaryTags.length > 0;
     const hasBedrockTarget = Boolean(BEDROCK_INFERENCE_PROFILE_ARN || BEDROCK_MODEL_ID);
     const hasTitanExpressTarget = Boolean(BEDROCK_TITAN_EXPRESS_MODEL_ID);
@@ -1051,8 +1092,19 @@ app.post("/api/assistant", async (req, res) => {
       hasBedrockTarget,
       hasTitanExpressTarget,
       hasTitanPremierTarget,
+      policyMode,
     });
     let policyMeta = { ...policyDecision, resolvedAction: policyDecision.action };
+    const addPolicyNote = (message) => {
+      policyMeta = {
+        ...policyMeta,
+        reason: policyMeta.reason ? `${policyMeta.reason} ${message}` : message,
+      };
+    };
+
+    if (agentCoreFallbackReason) {
+      addPolicyNote(agentCoreFallbackReason);
+    }
 
     if (policyDecision.action === "reject_out_of_domain") {
       const rejectMeta = { ...policyDecision, resolvedAction: policyDecision.action };
@@ -1072,7 +1124,10 @@ app.post("/api/assistant", async (req, res) => {
           origin: "heuristic",
         },
         meta: {
+          agentCore: false,
+          ...(agentCoreFallbackReason ? { agentCoreError: agentCoreFallbackReason } : {}),
           policyDecision: rejectMeta,
+          policyMode,
         },
       });
     }
@@ -1110,22 +1165,33 @@ app.post("/api/assistant", async (req, res) => {
     const originalAction = policyDecision.action;
     let resolvedAction = originalAction === "elastic_plus_bedrock" ? "elastic_plus_sonnet" : originalAction;
 
-    if (!hasActiveDietaryFilters && (policyMeta.context?.coreTokenCount ?? 0) <= 2 && !useBedrock) {
+    if (
+      policyMode !== "fully_managed" &&
+      !hasActiveDietaryFilters &&
+      (policyMeta.context?.coreTokenCount ?? 0) <= 2 &&
+      !useBedrock
+    ) {
       resolvedAction = "elastic_only";
     }
 
+    const availabilitySwap = (requested, fallback) => {
+      if (requested === fallback) return;
+      addPolicyNote(`Requested ${requested} but required endpoint unavailable; routing to ${fallback}.`);
+      resolvedAction = fallback;
+    };
+
     if (resolvedAction === "elastic_plus_sonnet" && !hasBedrockTarget) {
-      if (hasTitanPremierTarget) resolvedAction = "elastic_plus_titan_premier";
-      else if (hasTitanExpressTarget) resolvedAction = "elastic_plus_titan_express";
-      else resolvedAction = "elastic_only";
+      if (hasTitanPremierTarget) availabilitySwap("elastic_plus_sonnet", "elastic_plus_titan_premier");
+      else if (hasTitanExpressTarget) availabilitySwap("elastic_plus_sonnet", "elastic_plus_titan_express");
+      else availabilitySwap("elastic_plus_sonnet", "elastic_only");
     } else if (resolvedAction === "elastic_plus_titan_express" && !hasTitanExpressTarget) {
-      if (hasBedrockTarget) resolvedAction = "elastic_plus_sonnet";
-      else if (hasTitanPremierTarget) resolvedAction = "elastic_plus_titan_premier";
-      else resolvedAction = "elastic_only";
+      if (hasBedrockTarget) availabilitySwap("elastic_plus_titan_express", "elastic_plus_sonnet");
+      else if (hasTitanPremierTarget) availabilitySwap("elastic_plus_titan_express", "elastic_plus_titan_premier");
+      else availabilitySwap("elastic_plus_titan_express", "elastic_only");
     } else if (resolvedAction === "elastic_plus_titan_premier" && !hasTitanPremierTarget) {
-      if (hasBedrockTarget) resolvedAction = "elastic_plus_sonnet";
-      else if (hasTitanExpressTarget) resolvedAction = "elastic_plus_titan_express";
-      else resolvedAction = "elastic_only";
+      if (hasBedrockTarget) availabilitySwap("elastic_plus_titan_premier", "elastic_plus_sonnet");
+      else if (hasTitanExpressTarget) availabilitySwap("elastic_plus_titan_premier", "elastic_plus_titan_express");
+      else availabilitySwap("elastic_plus_titan_premier", "elastic_only");
     }
 
     if (resolvedAction === "elastic_only" && useBedrock) {
@@ -1140,11 +1206,32 @@ app.post("/api/assistant", async (req, res) => {
     const candidates = heuristicsProducts.slice(0, candidateLimit);
     const promotions = promoDocs.map(normalisePromotion).filter(Boolean);
 
-    const queryContext = { ...(policyDecision.context || analyseQueryContext(nlQuery)), preferences };
-    const complexityScore = computeComplexityScore(queryContext, preferences, { userBedrockToggle: useBedrock });
+    const policyContext = policyDecision.context || analyseQueryContext(nlQuery);
+    const queryContext = { ...policyContext, preferences };
+    const policyComplexity =
+      typeof policyContext?.complexityScore === "number" ? policyContext.complexityScore : undefined;
+    const complexityScore =
+      typeof policyComplexity === "number"
+        ? policyComplexity
+        : policyMode === "semi_managed"
+        ? computeComplexityScore(policyContext, preferences, { userBedrockToggle: useBedrock })
+        : undefined;
+    policyMeta = {
+      ...policyMeta,
+      context: {
+        ...policyContext,
+        ...(typeof complexityScore === "number" ? { complexityScore } : {}),
+        policyMode,
+      },
+    };
     const queryForLLM = nlQuery;
 
-    if (resolvedAction === "elastic_plus_titan_premier" && complexityScore < PREMIER_THRESHOLD) {
+    if (
+      policyMode !== "fully_managed" &&
+      typeof complexityScore === "number" &&
+      resolvedAction === "elastic_plus_titan_premier" &&
+      complexityScore < PREMIER_THRESHOLD
+    ) {
       if (hasTitanExpressTarget && complexityScore >= EXPRESS_THRESHOLD) {
         resolvedAction = "elastic_plus_titan_express";
       } else if (hasBedrockTarget) {
@@ -1153,10 +1240,7 @@ app.post("/api/assistant", async (req, res) => {
         resolvedAction = "elastic_only";
       }
       const note = `Complexity score ${complexityScore} below Premier threshold (${PREMIER_THRESHOLD}); routing to ${resolvedAction}.`;
-      policyMeta = {
-        ...policyMeta,
-        reason: policyMeta.reason ? `${policyMeta.reason} ${note}` : note,
-      };
+      addPolicyNote(note);
     }
 
     if (!candidates.length && resolvedAction === "elastic_only") {
@@ -1182,6 +1266,8 @@ app.post("/api/assistant", async (req, res) => {
           origin: "heuristic",
         },
         meta: {
+          agentCore: false,
+          ...(agentCoreFallbackReason ? { agentCoreError: agentCoreFallbackReason } : {}),
           productTool: productResult.status,
           promotionTool: promoResult.status,
           rerankApplied: rerank,
@@ -1191,6 +1277,7 @@ app.post("/api/assistant", async (req, res) => {
           preferenceFilteredOut: preferenceResult.applied ? preferenceResult.filteredOut : undefined,
           preferences: preferences.dietaryTags.length ? preferences : undefined,
           policyDecision: policyMeta,
+          policyMode,
         },
       });
     }
@@ -1372,6 +1459,8 @@ app.post("/api/assistant", async (req, res) => {
           origin: reasoning?.origin ?? "heuristic",
         },
         meta: {
+          agentCore: false,
+          ...(agentCoreFallbackReason ? { agentCoreError: agentCoreFallbackReason } : {}),
           productTool: productResult.status,
           promotionTool: promoResult.status,
           rerankApplied: rerank,
@@ -1381,6 +1470,7 @@ app.post("/api/assistant", async (req, res) => {
           preferenceFilteredOut: preferenceResult.applied ? preferenceResult.filteredOut : undefined,
           preferences: preferences.dietaryTags.length ? preferences : undefined,
           policyDecision: policyMeta,
+          policyMode,
         },
       });
     }
@@ -1391,6 +1481,8 @@ app.post("/api/assistant", async (req, res) => {
       promotions,
       reasoning,
       meta: {
+        agentCore: false,
+        ...(agentCoreFallbackReason ? { agentCoreError: agentCoreFallbackReason } : {}),
         productTool: productResult.status,
         promotionTool: promoResult.status,
         rerankApplied: rerank,
@@ -1418,6 +1510,7 @@ app.post("/api/assistant", async (req, res) => {
         preferenceFallback: preferenceFallbackApplied || undefined,
         preferences: preferences.dietaryTags.length ? preferences : undefined,
         policyDecision: policyMeta,
+        policyMode,
         reasoningModel,
       },
     });

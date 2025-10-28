@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { AssistantPayload, AssistantResponse, UserPreferences } from "../lib/types";
+import { AssistantPayload, AssistantResponse, PolicyMode, UserPreferences } from "../lib/types";
 
 export type ConversationEntry = {
   id: string;
@@ -18,13 +18,22 @@ export function useAssistant() {
 
   const trigger = async (
     nlQuery: string,
-    options?: { rerank?: boolean; useBedrock?: boolean; size?: number; preferences?: UserPreferences }
+    options?: {
+      rerank?: boolean;
+      useBedrock?: boolean;
+      size?: number;
+      preferences?: UserPreferences;
+      policyMode?: PolicyMode;
+      useAgentCore?: boolean;
+    }
   ) => {
     const payload: AssistantPayload = { nlQuery };
     if (options?.rerank) payload.rerank = true;
     if (options?.useBedrock !== undefined) payload.useBedrock = options.useBedrock;
     if (options?.size) payload.size = options.size;
     if (options?.preferences) payload.preferences = options.preferences;
+    if (options?.policyMode) payload.policyMode = options.policyMode;
+    if (options?.useAgentCore !== undefined) payload.useAgentCore = options.useAgentCore;
 
     const controller = new AbortController();
     abortRef.current?.abort();

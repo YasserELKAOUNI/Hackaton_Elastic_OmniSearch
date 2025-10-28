@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import Iterable, Iterator, List
 
 import requests
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # Optional dependency
+    def load_dotenv(*_args, **_kwargs):
+        """Fallback when python-dotenv isn't installed."""
+        return False
 
 load_dotenv()
 
