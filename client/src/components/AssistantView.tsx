@@ -144,6 +144,9 @@ export function AssistantView({ query, data, isLoading, isError, onRefresh }: As
       base = base.replace(/\s+for\s+\d+\s+people\s+with\s+budget\s+under\s+€\d+(?:[.,]\d+)?/i, "");
       base = base.replace(/\s+with\s+budget\s+under\s+€\d+(?:[.,]\d+)?/i, "");
       base = base.replace(/\s+under\s+€\d+(?:[.,]\d+)?/i, "");
+      // Remove standalone household fragments (en/fr)
+      base = base.replace(/\s+for\s+\d+\s+(?:people|person|ppl)/i, "");
+      base = base.replace(/\s+pour\s+\d+\s+(?:personnes?|pers?\.?)/i, "");
       return base.trim();
     } catch {
       return query;

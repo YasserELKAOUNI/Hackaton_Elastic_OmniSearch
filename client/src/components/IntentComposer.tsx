@@ -17,15 +17,26 @@ export function IntentComposer({ presets, onSubmit, isLoading, defaultValue = ""
   const [servings, setServings] = useState(4);
   const [budget, setBudget] = useState(20);
 
+  // Extract the base query and any household from the provided defaultValue.
   useEffect(() => {
     if (!defaultValue) {
       setValue("");
       return;
     }
-    const match = defaultValue.match(
-      /^(.*?)(?:\s+for\s+\d+\s+people\s+with\s+budget\s+under\s+€\d+)/i
-    );
-    setValue(match ? match[1].trim() : defaultValue);
+    // Remove trailing clauses we append in the UI so the input shows the natural core.
+    const base = defaultValue
+      .replace(/\s+for\s+\d+\s+(?:people|person|ppl)/i, "")
+      .replace(/\s+pour\s+\d+\s+(?:personnes?|pers?\.?)/i, "")
+      .replace(/\s+with\s+budget\s+under\s+€\d+(?:[.,]\d+)?/i, "")
+      .replace(/\s+under\s+€\d+(?:[.,]\d+)?/i, "")
+      .trim();
+    setValue(base.length ? base : defaultValue.trim());
+
+    // Infer household from the text and align the slider if present.
+    const hh = householdFromText(defaultValue);
+    if (typeof hh === "number" && hh > 0) {
+      setServings(Math.max(1, Math.min(8, hh)));
+    }
   }, [defaultValue]);
 
   // If the backend reports an effective budget, align the slider to it (a posteriori).
@@ -45,14 +56,32 @@ export function IntentComposer({ presets, onSubmit, isLoading, defaultValue = ""
     return euroSymbol.test(lower) || trailingEuro.test(lower) || keywordBudget.test(lower);
   };
 
+  const householdFromText = (text: string): number | null => {
+    if (!text) return null;
+    const patterns = [
+      /for\s+(\d+)\s+(?:people|person|ppl)/i,               // English
+      /pour\s+(\d+)\s+(?:personnes?|pers?\.?)/i,            // French
+      /\b(\d+)\s*(?:ppl|persons?|personnes?)\b/i            // Loose form
+    ];
+    for (const re of patterns) {
+      const m = text.match(re);
+      if (m && m[1]) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    }
+    return null;
+  };
+
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
     if (!value.trim()) return;
     const base = value.trim();
-    // Avoid duplicating budget if the user already specified one in text
-    const suffix = hasBudgetInText(base)
-      ? ` for ${servings} people`
-      : ` for ${servings} people with budget under €${budget}`;
+    // Avoid duplicating household/budget if already present in text
+    const parts: string[] = [];
+    if (!householdFromText(base)) parts.push(`for ${servings} people`);
+    if (!hasBudgetInText(base)) parts.push(`with budget under €${budget}`);
+    const suffix = parts.length ? ` ${parts.join(" ")}` : "";
     onSubmit(`${base}${suffix}`);
   };
 
@@ -124,9 +153,10 @@ export function IntentComposer({ presets, onSubmit, isLoading, defaultValue = ""
                 onClick={() => {
                   setValue(preset.prompt);
                   const base = preset.prompt.trim();
-                  const suffix = hasBudgetInText(base)
-                    ? ` for ${servings} people`
-                    : ` for ${servings} people with budget under €${budget}`;
+                  const parts: string[] = [];
+                  if (!householdFromText(base)) parts.push(`for ${servings} people`);
+                  if (!hasBudgetInText(base)) parts.push(`with budget under €${budget}`);
+                  const suffix = parts.length ? ` ${parts.join(" ")}` : "";
                   onSubmit(`${base}${suffix}`);
                 }}
                 className={clsx(
