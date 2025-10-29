@@ -391,6 +391,11 @@ export default function App() {
             onSubmit={handleSearch}
             isLoading={isLoading}
             defaultValue={query}
+            effectiveBudget={
+              typeof data?.meta?.budgetMaxPrice === "number"
+                ? data?.meta?.budgetMaxPrice
+                : (data?.meta?.policyDecision?.context?.maxPrice as number | undefined)
+            }
           />
           <InsightsPanel
             query={query}

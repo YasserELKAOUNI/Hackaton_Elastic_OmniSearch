@@ -7,9 +7,12 @@ type IntentComposerProps = {
   onSubmit: (nlQuery: string) => void;
   isLoading?: boolean;
   defaultValue?: string;
+  // When provided, the component aligns its budget slider a posteriori
+  // to the effective budget enforced by the backend.
+  effectiveBudget?: number | null;
 };
 
-export function IntentComposer({ presets, onSubmit, isLoading, defaultValue = "" }: IntentComposerProps) {
+export function IntentComposer({ presets, onSubmit, isLoading, defaultValue = "", effectiveBudget }: IntentComposerProps) {
   const [value, setValue] = useState(defaultValue);
   const [servings, setServings] = useState(4);
   const [budget, setBudget] = useState(20);
@@ -25,12 +28,32 @@ export function IntentComposer({ presets, onSubmit, isLoading, defaultValue = ""
     setValue(match ? match[1].trim() : defaultValue);
   }, [defaultValue]);
 
+  // If the backend reports an effective budget, align the slider to it (a posteriori).
+  useEffect(() => {
+    if (typeof effectiveBudget === "number" && Number.isFinite(effectiveBudget) && effectiveBudget > 0) {
+      setBudget(Math.round(effectiveBudget));
+    }
+  }, [effectiveBudget]);
+
+  const hasBudgetInText = (text: string) => {
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    // Match common patterns: "€ 12", "12€", "under 12", "budget under 12"
+    const euroSymbol = /€\s*\d+(?:[.,]\d+)?/;
+    const trailingEuro = /\d+(?:[.,]\d+)?\s*(?:€|eur|euro)s?/;
+    const keywordBudget = /(?:under|below|less than|<=|budget\s*(?:under|below|less than)?)\s*(?:€|\s*euros?|eur)?\s*\d+(?:[.,]\d+)?/;
+    return euroSymbol.test(lower) || trailingEuro.test(lower) || keywordBudget.test(lower);
+  };
+
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
     if (!value.trim()) return;
-    onSubmit(
-      `${value.trim()} for ${servings} people with budget under €${budget}`
-    );
+    const base = value.trim();
+    // Avoid duplicating budget if the user already specified one in text
+    const suffix = hasBudgetInText(base)
+      ? ` for ${servings} people`
+      : ` for ${servings} people with budget under €${budget}`;
+    onSubmit(`${base}${suffix}`);
   };
 
   return (
@@ -100,7 +123,11 @@ export function IntentComposer({ presets, onSubmit, isLoading, defaultValue = ""
                 type="button"
                 onClick={() => {
                   setValue(preset.prompt);
-                  onSubmit(`${preset.prompt} for ${servings} people with budget under €${budget}`);
+                  const base = preset.prompt.trim();
+                  const suffix = hasBudgetInText(base)
+                    ? ` for ${servings} people`
+                    : ` for ${servings} people with budget under €${budget}`;
+                  onSubmit(`${base}${suffix}`);
                 }}
                 className={clsx(
                   "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition",

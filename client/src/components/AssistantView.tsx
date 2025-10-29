@@ -132,17 +132,38 @@ export function AssistantView({ query, data, isLoading, isError, onRefresh }: As
     },
   ];
 
+  // Build a clean display label by stripping trailing budget/household clauses
+  const effectiveBudget =
+    typeof meta?.budgetMaxPrice === "number"
+      ? meta?.budgetMaxPrice
+      : (meta?.policyDecision?.context?.maxPrice as number | undefined);
+  const cleanLabel = (() => {
+    try {
+      let base = (query || "").trim();
+      // Remove common budget phrases to avoid duplication in the title
+      base = base.replace(/\s+for\s+\d+\s+people\s+with\s+budget\s+under\s+€\d+(?:[.,]\d+)?/i, "");
+      base = base.replace(/\s+with\s+budget\s+under\s+€\d+(?:[.,]\d+)?/i, "");
+      base = base.replace(/\s+under\s+€\d+(?:[.,]\d+)?/i, "");
+      return base.trim();
+    } catch {
+      return query;
+    }
+  })();
+
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">Top picks for “{query}”</h2>
+          <h2 className="text-xl font-semibold">Top picks for “{cleanLabel || query}”</h2>
           <p className="text-sm text-slate-900/60">
             Blending Elastic search relevance, nutrition intelligence, and promotion stacking.
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs">
           <span className="badge bg-white/10">#{data.products?.length ?? 0}</span>
+          {typeof effectiveBudget === "number" ? (
+            <span className="badge border bg-slate-200 text-slate-700 border-slate-300">Budget ≤ €{Math.round(effectiveBudget)}</span>
+          ) : null}
           {policyMode ? (
             <span className={badgeClass(true)}>
               {policyMode === "fully_managed" ? "Haiku Fully-managed" : "Haiku Semi-managed"}
